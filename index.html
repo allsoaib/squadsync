@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SquadSync – Esports Team Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#0b0d17;color:#e5e7eb}.card{background:#141829;border:1px solid #232846;border-radius:14px;padding:16px}
+.inp{-webkit-user-select:text;user-select:text;width:100%;background:#0b0d17;border:1px solid #2c3358;border-radius:10px;padding:10px;color:#fff}
+.btn{background:#7c3aed;border-radius:10px;padding:10px 16px;font-weight:600}.btn:hover{background:#6d28d9}
+.btn2{background:#232846;border-radius:10px;padding:8px 12px}.nav.on{color:#a78bfa;border-color:#a78bfa}</style></head>
+<body class="min-h-screen pb-20"><div id="app"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,sendPasswordResetEmail,setPersistence,browserLocalPersistence,browserSessionPersistence,updateProfile} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,setDoc,addDoc,updateDoc,deleteDoc,getDoc,getDocs,collection,onSnapshot,Timestamp,query,where,arrayUnion,arrayRemove} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const cfg={apiKey:"AIzaSyADmCF4P6v-_tBk0mYwKy6lSRvI_T7xfZs",authDomain:"gaming-schedule-web.firebaseapp.com",projectId:"gaming-schedule-web",storageBucket:"gaming-schedule-web.firebasestorage.app",messagingSenderId:"37353379552",appId:"1:37353379552:web:5adeaa86e7f86e258da285",measurementId:"G-NJYM00N8S9"};
+const SUPPORT="https://discord.gg/zWAGe8jUZ";
+const fb=initializeApp(cfg),auth=getAuth(fb),db=getFirestore(fb);
+const S={hidePast:(()=>{try{return localStorage.getItem("hidePast")!=="0"}catch(e){return true}})(),dr:{},sel:{},selMode:false,user:null,me:null,users:[],a:[],b:[],sqs:[],tsBy:{},gBy:{},rqBy:{},cur:null,view:"schedule",mode:"login",fsq:"all",fg:"all",msg:"",found:null};
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const U=()=>S.user.uid,isM=s=>s.managerIds.includes(U()),mg=()=>S.sqs.filter(isM),role=()=>S.me.role;
+const allT=()=>Object.values(S.tsBy).flat().sort((x,y)=>x.scheduledTime.toMillis()-y.scheduledTime.toMillis()),allG=()=>Object.values(S.gBy).flat();
+const uname=id=>S.users.find(u=>u.uid===id)?.displayName||"Unknown",sqn=id=>S.sqs.find(s=>s.id===id)?.name||"Team",gname=id=>allG().find(g=>g.id===id)?.title||"Game";
+const fmt=t=>t.toDate().toLocaleString([],{dateStyle:"medium",timeStyle:"short"}),stars=n=>"★".repeat(Math.round(n))+"☆".repeat(5-Math.round(n));
+const vis=t=>!(S.hidePast&&t.status==="Completed"&&t.resPosition!=null);
+const canSel=t=>{const q=S.sqs.find(x=>x.id===t.squadId);return !!q&&isM(q)},canSelId=id=>{const t=allT().find(x=>x.id===id);return !!t&&canSel(t)};
+const loc=t=>{const d=t.toDate();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16)};
+const startMs=t=>(t.startTime||t.scheduledTime).toMillis();
+const support=`<a href="${SUPPORT}" target="_blank" rel="noopener" class="text-violet-400 underline" style="font-size:11px">Need Help? Join Support</a>`;
+let unsubs=[],sub=[],key="";
+onAuthStateChanged(auth,u=>{[...unsubs,...sub].forEach(f=>f());unsubs=[];sub=[];key="";Object.assign(S,{user:u,me:null,a:[],b:[],sqs:[],tsBy:{},gBy:{},rqBy:{},cur:null});
+ if(!u)return render();
+ const sq=f=>onSnapshot(query(collection(db,"squads"),where(f,"array-contains",u.uid)),s=>{S[f==="memberIds"?"a":"b"]=s.docs.map(d=>({id:d.id,...d.data()}));sync()});
+ unsubs=[onSnapshot(doc(db,"users",u.uid),d=>{S.me=d.data()||null;render()}),onSnapshot(collection(db,"users"),s=>{S.users=s.docs.map(d=>d.data());render()}),sq("memberIds"),sq("managerIds")]});
+function sync(){const m={};[...S.a,...S.b].forEach(s=>m[s.id]=s);S.sqs=Object.values(m);const k=S.sqs.map(s=>s.id+isM(s)).sort().join();
+ if(k!==key){key=k;sub.forEach(f=>f());sub=[];S.tsBy={};S.gBy={};S.rqBy={};
+  S.sqs.forEach(s=>{const c=n=>query(collection(db,n),where("squadId","==",s.id));
+   sub.push(onSnapshot(c("tournaments"),x=>{S.tsBy[s.id]=x.docs.map(d=>({id:d.id,...d.data()}));render()}),onSnapshot(c("games"),x=>{S.gBy[s.id]=x.docs.map(d=>({id:d.id,...d.data()}));render()}));
+   if(isM(s))sub.push(onSnapshot(c("joinRequests"),x=>{S.rqBy[s.id]=x.docs.map(d=>({id:d.id,...d.data()}));render()}))})}
+ const m2=mg();if(!m2.find(s=>s.id===S.cur))S.cur=(m2.find(s=>s.active)||m2[0])?.id||null;render()}
+function render(){const a=$("#app");
+ if(!S.user||!S.me){a.innerHTML=authView();return bindAuth();}
+ const tabs=[["schedule","Schedule"],["squads","Teams"],...(mg().length?[["create","New Match"],["games","Games"]]:[]),["stats","Stats"],["profile","Profile"]];
+ const V={schedule,squads,create,games,stats,profile}[S.view]||schedule;
+ a.innerHTML=`<header class="flex items-center justify-between p-4 border-b border-[#232846]"><b class="text-lg text-violet-400">⚔ SquadSync</b>
+ <div class="text-sm flex gap-3 items-center"><span class="hidden sm:inline">${esc(S.me.displayName)} · ${role()}</span>${support}<button id="out" class="btn2">Logout</button></div></header>
+ <main class="max-w-3xl mx-auto p-4">${S.msg?`<p class="text-amber-400 mb-2">${esc(S.msg)}</p>`:""}${V()}</main>
+ <nav class="fixed bottom-0 inset-x-0 bg-[#0f1220] border-t border-[#232846] flex justify-around text-sm">${tabs.map(([k,l])=>`<button data-v="${k}" class="nav py-4 px-2 border-t-2 border-transparent ${S.view===k?"on":""}">${l}</button>`).join("")}</nav>`;
+ $("#out").onclick=()=>signOut(auth);document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;S.msg="";S.selMode=false;S.sel={};render()});restoreDr();bindMain();}
+const fk=f=>f.dataset.rate?"r"+f.dataset.rate:f.dataset.room?"o"+f.dataset.room:f.dataset.result?"s"+f.dataset.result:f.dataset.time?"t"+f.dataset.time:null;
+document.addEventListener("input",e=>{const f=e.target.form,k=f&&fk(f);if(k&&e.target.name)(S.dr[k]=S.dr[k]||{})[e.target.name]=e.target.value});
+let lp=null,lpd=false,sx=0,sy=0;
+document.addEventListener("pointerdown",e=>{lpd=false;sx=e.clientX;sy=e.clientY;if(S.selMode)return;const c=e.target.closest&&e.target.closest("[data-card]");
+ if(!c||e.target.closest("button,input,select,textarea,a,label,form,[data-copy]")||!canSelId(c.dataset.card))return;
+ lp=setTimeout(()=>{lpd=true;S.selMode=true;S.sel[c.dataset.card]=true;navigator.vibrate&&navigator.vibrate(25);render()},550)});
+document.addEventListener("pointermove",e=>{if(Math.abs(e.clientX-sx)>10||Math.abs(e.clientY-sy)>10)clearTimeout(lp)},{passive:true});
+["pointerup","pointercancel","scroll"].forEach(ev=>document.addEventListener(ev,()=>clearTimeout(lp),{capture:true,passive:true}));
+document.addEventListener("click",e=>{if(!S.selMode)return;const c=e.target.closest("[data-card]");if(!c||e.target.closest("[data-seldel],[data-selall],[data-selcancel]"))return;
+ e.preventDefault();e.stopPropagation();if(lpd){lpd=false;return}const id=c.dataset.card;if(!canSelId(id))return;S.sel[id]=!S.sel[id];if(!Object.values(S.sel).some(Boolean))S.selMode=false;render()},true);
+const fields=f=>[...f.elements].filter(x=>!x.disabled&&["INPUT","SELECT","TEXTAREA"].includes(x.tagName)&&!["hidden","checkbox","button","submit"].includes(x.type));
+document.addEventListener("keydown",e=>{if(e.key!=="Enter"||e.isComposing||e.target.tagName!=="INPUT"||!e.target.form)return;const els=fields(e.target.form),i=els.indexOf(e.target);if(i>-1&&i<els.length-1){e.preventDefault();els[i+1].focus()}});
+function restoreDr(){document.querySelectorAll("input:not([autocomplete])").forEach(x=>x.setAttribute("autocomplete","off"));
+ document.querySelectorAll("form").forEach(f=>{const els=fields(f).filter(x=>x.tagName==="INPUT");els.forEach((x,i)=>x.setAttribute("enterkeyhint",i<els.length-1?"next":"go"))});document.querySelectorAll("form").forEach(f=>{const k=fk(f),d=k&&S.dr[k];if(d)Object.entries(d).forEach(([n,v])=>{const el=f.elements[n];if(el&&el.type!=="select-multiple")el.value=v})})}
+function authView(){const l=S.mode==="login",r=S.mode==="register";
+ return `<div class="max-w-md mx-auto p-6 pt-12"><h1 class="text-3xl font-bold text-violet-400 mb-1">⚔ SquadSync</h1><p class="text-gray-400 mb-6">Team scheduling & performance</p>
+ <form id="af" class="card space-y-3">
+ ${r?`<input name="name" class="inp" autocomplete="off" placeholder="Display name" required>`:""}
+ <input name="email" type="email" class="inp" autocomplete="${l?"username":"email"}" placeholder="Email" required>
+ ${S.mode!=="reset"?`<div class="relative"><input name="pw" type="password" minlength="6" class="inp" style="padding-right:70px" autocomplete="${l?"current-password":"new-password"}" placeholder="Password" required><button type="button" id="pwt" class="btn2 absolute text-xs" style="right:6px;top:5px;padding:5px 10px">Show</button></div>`:""}
+ ${r?`<select name="role" class="inp"><option value="player">Player</option><option value="manager">Team Manager / Scheduler</option></select>
+ <input name="sq" id="sq" class="inp" style="display:none" placeholder="Team name (optional – you can create it later)">
+ <div><input name="did" pattern="\\d{17,20}" class="inp" placeholder="Discord User ID (numeric)" required>
+ <details class="text-xs text-gray-400 mt-1"><summary class="cursor-pointer">ⓘ How to copy your Discord User ID</summary>Discord → Settings → Advanced → enable Developer Mode. Then open your profile → ••• → Copy User ID.</details></div>`:""}
+ ${l?`<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rem" checked> Remember me</label>`:""}
+ <button class="btn w-full">${l?"Log in":r?"Create account":"Send reset link"}</button><p id="err" class="text-red-400 text-sm">${esc(S.msg)}</p>
+ <div class="text-sm flex justify-between text-violet-300"><a href="#" data-m="${l?"register":"login"}">${l?"Create account":"Back to login"}</a>${l?`<a href="#" data-m="reset">Forgot password?</a>`:""}</div></form>
+ <p class="text-center mt-6 text-sm">${support}</p></div>`;}
+function bindAuth(){document.querySelectorAll("[data-m]").forEach(a=>a.onclick=e=>{e.preventDefault();S.mode=a.dataset.m;S.msg="";render()});
+ const f=$("#af");if(!f)return;const pt=$("#pwt");if(pt)pt.onclick=()=>{const p=f.elements.pw;p.type=p.type==="password"?"text":"password";pt.textContent=p.type==="password"?"Show":"Hide"};const rs=f.elements.role;if(rs)rs.onchange=()=>$("#sq").style.display=rs.value==="manager"?"block":"none";
+ f.onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f));
+ try{if(S.mode==="reset"){await sendPasswordResetEmail(auth,v.email);S.msg="Reset email sent.";return render();}
+ if(S.mode==="login"){await setPersistence(auth,v.rem?browserLocalPersistence:browserSessionPersistence);await signInWithEmailAndPassword(auth,v.email,v.pw);}
+ else{const c=await createUserWithEmailAndPassword(auth,v.email,v.pw);await updateProfile(c.user,{displayName:v.name});
+  await setDoc(doc(db,"users",c.user.uid),{uid:c.user.uid,email:v.email,displayName:v.name,role:v.role,discordUserId:v.did,ratings:{},stats:{}});
+  if(v.role==="manager"&&v.sq?.trim())await newSquad(v.sq,c.user.uid);}
+ S.msg=""}catch(x){$("#err").textContent=x.message}}}
+const newSquad=(n,uid)=>addDoc(collection(db,"squads"),{name:n.trim(),nameLower:n.trim().toLowerCase(),managerIds:[uid],memberIds:[],active:true,createdBy:uid});
+function schedule(){const T=allT(),now=Date.now(),sMs=t=>(t.startTime||t.scheduledTime).toMillis(),cMs=t=>(t.createdAt||t.scheduledTime).toMillis(),
+ up=T.filter(t=>t.status==="Upcoming"&&now<sMs(t)).sort((a,b)=>sMs(a)-sMs(b)),
+ run=T.filter(t=>t.status==="Upcoming"&&now>=sMs(t)).sort((a,b)=>sMs(a)-sMs(b)),
+ wait=T.filter(t=>t.status==="Completed"&&t.resPosition==null).sort((a,b)=>cMs(b)-cMs(a)),
+ done=T.filter(t=>t.status!=="Upcoming"&&!(t.status==="Completed"&&t.resPosition==null)&&vis(t)).sort((a,b)=>cMs(b)-cMs(a));
+ if(!S.sqs.length)return `<div class="card text-center"><p>You're not in a team yet.</p><button class="btn mt-3" data-v="squads">Find or create a team</button></div>`;
+ const card=t=>{const sq=S.sqs.find(s=>s.id===t.squadId),mgr=sq&&isM(sq),live=t.status==="Upcoming"&&Date.now()>=(t.startTime||t.scheduledTime).toMillis(),played=[...t.starterUserIds,t.reserveUserId].includes(U()),rs=t.ratings||{},ks=Object.keys(rs),avg=ks.length?ks.reduce((a,k)=>a+rs[k].stars,0)/ks.length:0,sum=ks.reduce((a,k)=>a+(rs[k].kills||0),0);
+ return `<div data-card="${t.id}" class="card mb-3 ${played?"border-violet-500":""} ${S.sel[t.id]?"ring-2 ring-red-500":""}" style="${mgr?"-webkit-touch-callout:none;user-select:none;-webkit-user-select:none":""}">${S.selMode&&mgr?`<div class="text-xs mb-1 ${S.sel[t.id]?"text-red-400":"text-gray-500"}">${S.sel[t.id]?"☑ Selected":"☐ Tap to select"}</div>`:""}<div class="flex justify-between"><b>${esc(gname(t.gameId))}${t.tournamentName?" · "+esc(t.tournamentName):""}</b>
+ <span class="text-xs px-2 py-1 rounded bg-[#232846]">${live?"Live":t.status}${t.resPosition!=null?" · #"+t.resPosition:""}</span></div>
+ <p class="text-xs text-violet-300">${esc(t.teamName||sqn(t.squadId))}</p>
+ <p class="text-sm text-gray-400">🕒 Match time: ${fmt(t.scheduledTime)}${t.map?" · "+esc(t.map):""}${t.opponent?" · vs "+esc(t.opponent):""}</p>${t.startTime?`<p class="text-sm text-sky-300">🏁 Tour starting time: ${fmt(t.startTime)}</p>`:""}
+ <p class="text-sm mt-1">Starters: ${t.starterUserIds.map(i=>esc(uname(i))).join(", ")}<br>Reserve: ${esc(uname(t.reserveUserId))}</p>
+ ${(played||(sq&&isM(sq)))&&(t.roomId||t.roomPassword)?`<p data-copy style="user-select:text;-webkit-user-select:text" class="text-sm mt-1 text-green-400">🔑 Room ID: <b>${esc(t.roomId||"—")}</b> · Password: <b>${esc(t.roomPassword||"—")}</b></p>`:""}
+ ${sq&&isM(sq)&&t.status==="Upcoming"?`<form data-room="${t.id}" class="grid grid-cols-2 gap-2 mt-2"><input name="rid" class="inp" placeholder="Room ID" value="${esc(t.roomId)}" required><input name="rpw" class="inp" placeholder="Room password" value="${esc(t.roomPassword)}"><button class="btn2 col-span-2">${t.roomId?"Update":"Add"} room & notify players on Discord</button></form>`:""}
+ ${t.status==="Completed"?`<p class="text-amber-400 mt-1">${ks.length?stars(avg)+` (${ks.length})`:"Not rated"}</p>
+ ${ks.length?`<p class="text-sm mt-1">⚔ Kills: ${ks.map(k=>`${esc(uname(k))} <b>${rs[k].kills??0}</b>`).join(" · ")}</p><p class="text-sm">Players' kills total: <b>${sum}</b> (${ks.length} of ${t.starterUserIds.length+1} reported)${t.resKills!=null?` · Leaderboard: <b>${t.resKills}</b> ${sum===t.resKills?"<span class=\"text-green-400\">✅ matches</span>":"<span class=\"text-red-400\">⚠ differs by "+Math.abs(sum-t.resKills)+"</span>"}`:""}</p>`:""}
+ ${played?(rs[U()]?'<p class="text-xs text-green-400 mt-2">✔ You have submitted your kills & rating.</p>':`<form data-rate="${t.id}" class="grid grid-cols-2 gap-2 mt-2"><input name="k" type="number" min="0" max="999" class="inp" placeholder="Your total kills" required><select name="s" class="inp">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} ★</option>`).join("")}</select><input name="n" class="inp col-span-2" placeholder="Feedback note"><button class="btn col-span-2">Submit (one time only)</button></form>`):'<p class="text-xs text-gray-500">Only players in this match can submit kills & rating.</p>'}`:""}
+ ${mgr?`<div class="mt-2"><button class="btn2" data-edit="${t.id}">✏ Edit</button></div>`:""}
+ ${mgr&&S.edit===t.id?editForm(t,sq):""}
+ ${t.status==="Upcoming"&&(played||(sq&&isM(sq)))&&U()!==t.reserveUserId?`<div class="grid grid-cols-2 gap-2 mt-2"><button class="btn2" data-need="${t.id}|now">🚨 Need you right now</button><button class="btn2" data-need="${t.id}|next">⏭ Come in next game</button></div>`:""}
+ ${live&&played?`<button class="btn w-full mt-2" data-end="${t.id}">🏁 End tournament</button>`:""}
+ ${t.status==="Completed"&&t.resPosition!=null?`<p class="text-sm mt-1 text-emerald-300">🏁 Result: #${t.resPosition} · ${t.resPosPoints!=null?` · Position pts ${t.resPosPoints}`:""}${t.resKills!=null?` · Team kills ${t.resKills}`:""}${t.resTotalPoints!=null?` · Total pts ${t.resTotalPoints}`:""}${t.resNotes?" · "+esc(t.resNotes):""}</p>`:""}
+ ${t.status==="Completed"&&t.resPosition==null?`<p class="text-sm text-amber-400 mt-2">⏳ ${mgr?"Enter the leaderboard results below.":"Waiting for the manager to enter the leaderboard results."}</p>`:""}
+ ${t.status==="Completed"&&sq&&isM(sq)?`<form data-result="${t.id}" class="mt-2"><div class="grid grid-cols-4 gap-2"><input name="p" type="number" inputmode="numeric" min="1" class="inp" placeholder="Position*" value="${t.resPosition??""}" required><input name="pp" type="number" inputmode="decimal" step="any" min="0" class="inp" placeholder="Pos pts" value="${t.resPosPoints??""}"><input name="k" type="number" inputmode="numeric" min="0" class="inp" placeholder="Kills" value="${t.resKills??""}"><input name="tp" type="number" inputmode="decimal" step="any" min="0" class="inp" placeholder="Total pts" value="${t.resTotalPoints??""}"></div><input name="n" class="inp mt-2" placeholder="Leaderboard notes (optional)" value="${esc(t.resNotes)}"><div class="grid grid-cols-2 gap-2 mt-2"><button class="btn2">Save results</button><button type="button" class="btn2" data-sendres="${t.id}">Send to Discord</button></div><p class="text-[11px] text-gray-500 mt-1">Only position is required. Order: Position · Position pts · Kills · Total pts.</p></form>`:""}
+ </div>`};
+ const sec=(h,l,m)=>l.length?`<h2 class="font-bold my-2">${h}</h2>${l.map(card).join("")}`:(m?`<h2 class="font-bold my-2">${h}</h2><p class="text-gray-500 mb-4">${m}</p>`:"");
+ const hid=T.filter(t=>!vis(t)).length,strip=`<label class="flex items-center gap-2 text-sm mb-3 p-2 rounded-lg bg-[#141829] border border-[#232846]"><input type="checkbox" id="hp" ${S.hidePast?"checked":""}> Hide past tournaments with results <span class="text-xs text-gray-500">${S.hidePast&&hid?`(${hid} hidden)`:""}</span></label>`,mn=T.filter(t=>vis(t)&&canSel(t)),ns=Object.keys(S.sel).filter(k=>S.sel[k]).length,allSel=mn.length>0&&ns===mn.length,
+ bar=S.selMode?`<div class="sticky top-0 z-10 bg-[#0f1220] border border-red-500 rounded-xl p-2 mb-3 flex items-center gap-2 flex-wrap"><b class="mr-1">${ns} selected</b><button class="btn2" data-selall>${allSel?"Clear all":"Select all"}</button><button class="btn2 text-red-400" data-seldel ${ns?"":"disabled"}>🗑 Delete</button><button class="btn2" data-selcancel>Cancel</button></div>`:(mn.length?'<p class="text-xs text-gray-500 mb-2">Tip: hold a tournament to select it, then delete several at once.</p>':"");
+ return strip+bar+sec("Upcoming",up,"No upcoming tournaments.")+sec("Running",run)+sec("⏳ Waiting for leaderboard",wait)+sec("Completed",done,hid?"All completed tournaments with results are hidden (untick “Hide past” above to see them).":"Nothing completed yet.")}
+function editForm(t,s){const ids=[...new Set([...s.managerIds,...s.memberIds])],opt=sel=>ids.map(i=>`<option value="${i}" ${sel.includes(i)?"selected":""}>${esc(uname(i))}${s.managerIds.includes(i)?" (manager)":""}</option>`).join("");
+ return `<form data-time="${t.id}" class="mt-2 p-3 rounded-lg border border-violet-600 space-y-2"><b>Edit tournament</b>
+ <label class="text-xs text-gray-400">Match time</label><input type="datetime-local" name="dt" class="inp" value="${loc(t.scheduledTime)}" required>
+ <label class="text-xs text-gray-400">Tour starting time (optional)</label><input type="datetime-local" name="ts" class="inp" value="${t.startTime?loc(t.startTime):""}">
+ <input name="tm" class="inp" value="${esc(t.teamName||s.name)}" placeholder="Team name for this match"><input name="tn" class="inp" value="${esc(t.tournamentName)}" placeholder="Tournament name">
+ <div class="grid grid-cols-2 gap-2"><input name="map" class="inp" value="${esc(t.map)}" placeholder="Map"><input name="opp" class="inp" value="${esc(t.opponent)}" placeholder="Opponent"></div>
+ <label class="text-xs text-gray-400">Starters (hold Ctrl/Cmd for multiple)</label><select name="st" multiple size="6" class="inp" required>${opt(t.starterUserIds)}</select>
+ <label class="text-xs text-gray-400">Reserve</label><select name="rs" class="inp" required>${opt([t.reserveUserId])}</select>
+ <div class="grid grid-cols-2 gap-2"><button class="btn">Save changes</button><button type="button" class="btn2" data-sendtime="${t.id}">Send times to Discord</button><button type="button" class="btn2" data-edit="">Close</button><button type="button" class="btn2 text-red-400" data-del="${t.id}">🗑 Delete</button></div></form>`}
+function curSel(){return `<select id="cursq" class="inp mb-3">${mg().map(s=>`<option value="${s.id}" ${s.id===S.cur?"selected":""}>${esc(s.name)}${s.active?"":" (disabled)"}</option>`).join("")}</select>`}
+function squads(){const reqs=mg().flatMap(s=>(S.rqBy[s.id]||[]));
+ const mine=S.sqs.map(s=>`<div class="card mb-2"><div class="flex justify-between"><b>${esc(s.name)}</b><span class="text-xs">${isM(s)?"Manager":"Player"}${s.active?"":" · Disabled"}</span></div>
+ <p class="text-xs text-gray-400">${s.memberIds.length} players · ${s.managerIds.length} managers</p><div class="flex gap-2 mt-2 flex-wrap">
+ ${isM(s)?`<button class="btn2" data-act="tog|${s.id}">${s.active?"Disable":"Enable"}</button>`:""}<button class="btn2" data-act="leave|${s.id}">Leave</button></div></div>`).join("")||'<p class="text-gray-500 mb-2">You are not in any team yet.</p>';
+ const f=(S.found||[]).map(s=>`<div class="card mb-2 flex justify-between items-center gap-2"><b>${esc(s.name)}</b><div class="flex gap-2"><button class="btn2" data-join="${s.id}|0">Join as player</button>${role()==="manager"?`<button class="btn2" data-join="${s.id}|1">Join as manager</button>`:""}</div></div>`).join("");
+ return `${reqs.length?`<h2 class="font-bold mb-2">Join requests</h2>${reqs.map(r=>`<div class="card mb-2"><p class="text-sm"><b>${esc(uname(r.uid))}</b> wants to join <b>${esc(sqn(r.squadId))}</b> as ${r.asManager?"manager":"player"}</p><div class="flex gap-2 mt-2"><button class="btn2" data-ap="${r.id}">Approve</button><button class="btn2" data-rj="${r.id}">Reject</button></div></div>`).join("")}`:""}
+ <h2 class="font-bold my-2">My teams</h2>${mine}
+ <h2 class="font-bold my-2">Find a team</h2><form id="sf" class="flex gap-2 mb-3"><input name="q" class="inp" placeholder="Search by team name" required><button class="btn">Search</button></form>
+ ${S.found?(f||'<p class="text-gray-500">No active teams found.</p>'):""}
+ ${role()==="manager"?`<h2 class="font-bold my-2">Create a team</h2><form id="nsf" class="card flex gap-2"><input name="n" class="inp" placeholder="New team name" required><button class="btn">Create</button></form>`:""}`}
+function create(){const s=S.sqs.find(x=>x.id===S.cur);if(!s)return '<p class="text-gray-500">Manage a team first (Teams tab).</p>';
+ const ids=[...new Set([...s.managerIds,...s.memberIds])],opts=ids.map(i=>`<option value="${i}">${esc(uname(i))}${s.managerIds.includes(i)?" (manager)":""}</option>`).join("");
+ return `${curSel()}<form id="cf" class="card space-y-3"><h2 class="font-bold">Schedule match for ${esc(s.name)}</h2>
+ <select name="g" class="inp" required><option value="">Select game…</option>${(S.gBy[s.id]||[]).map(g=>`<option value="${g.id}">${esc(g.title)}</option>`).join("")}</select>
+ <label class="text-sm">Match time</label><input type="datetime-local" name="dt" class="inp" required><label class="text-sm">Tour starting time (optional)</label><input type="datetime-local" name="ts" class="inp"><input name="tn" class="inp" placeholder="Tournament name (optional)">
+ <div class="grid grid-cols-2 gap-2"><input name="map" class="inp" placeholder="Map"><input name="opp" class="inp" placeholder="Opponent"></div>
+ <label class="text-sm">Team name for this match (optional – change per tournament)</label><input name="tm" class="inp" value="${esc(s.name)}">
+ <div class="grid grid-cols-2 gap-2"><input name="rid" class="inp" placeholder="Room ID (optional)"><input name="rpw" class="inp" placeholder="Room password (optional)"></div>
+ <label class="text-sm">Starters (hold Ctrl/Cmd for multiple)</label><select name="st" multiple size="6" class="inp" required>${opts}</select>
+ <label class="text-sm">Reserve (exactly 1)</label><select name="rs" class="inp" required><option value="">Select reserve…</option>${opts}</select>
+ <button class="btn w-full">Create & notify Discord</button></form>`}
+function games(){const s=S.sqs.find(x=>x.id===S.cur);if(!s)return '<p class="text-gray-500">Manage a team first.</p>';
+ return `${curSel()}<form id="gf" class="card space-y-3 mb-4"><h2 class="font-bold">Add game to ${esc(s.name)}</h2><input name="t" class="inp" placeholder="Game title" required>
+ <input name="m" class="inp" placeholder="Default modes (comma separated)"><input name="l" type="url" class="inp" placeholder="Logo URL"><button class="btn w-full">Add to library</button></form>
+ ${(S.gBy[s.id]||[]).map(g=>`<div class="card mb-2 flex items-center gap-3">${g.logo?`<img src="${esc(g.logo)}" class="w-10 h-10 rounded object-cover">`:"🎮"}<div><b>${esc(g.title)}</b><p class="text-xs text-gray-400">${esc((g.modes||[]).join(", "))}</p></div></div>`).join("")}`}
+function calc(list){const d=list.filter(t=>t.status==="Completed"),r=d.filter(t=>t.resPosition!=null),pos=r.map(t=>t.resPosition),all=list.flatMap(t=>Object.values(t.ratings||{})),avg=all.length?all.reduce((a,x)=>a+x.stars,0)/all.length:0,c=p=>pos.filter(x=>x===p).length;
+ return {n:d.length,p1:c(1),p2:c(2),p3:c(3),avgPos:pos.length?(pos.reduce((a,x)=>a+x,0)/pos.length).toFixed(1):"–",best:pos.length?Math.min(...pos):"–",kills:r.reduce((a,t)=>a+(t.resKills||0),0),avg,cnt:all.length}}
+const PAL=["#a78bfa","#34d399","#f59e0b","#38bdf8","#f472b6","#f87171","#a3e635","#fb923c"];
+const xl=t=>{const d=new Date(startMs(t));return [d.toLocaleDateString([],{day:"numeric",month:"short"}),d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})]};
+function charts(list){const rows=list.filter(t=>t.status==="Completed"&&t.resPosition!=null).sort((a,b)=>startMs(a)-startMs(b));
+ if(!rows.length)return `<div class="card mt-4 text-gray-400 text-sm">📈 Charts appear after a manager saves leaderboard results for a tournament.</div>`;
+ const n=rows.length,W=Math.max(340,n*76+60),L=40,R=18,T=22,gx=i=>L+(n===1?(W-L-R)/2:i*(W-L-R)/(n-1)),ttl=t=>esc(t.tournamentName||gname(t.gameId));
+ const xlab=(H,B,ex)=>rows.map((t,i)=>{const[a,b]=xl(t);return `<text x="${gx(i)}" y="${H-B+16}" text-anchor="middle" fill="#9ca3af" font-size="10">${a}</text><text x="${gx(i)}" y="${H-B+28}" text-anchor="middle" fill="#6b7280" font-size="9">${b}</text>${ex?ex(t,i,H,B):""}`}).join("");
+ const H1=275,B1=84,maxP=Math.max(3,...rows.map(t=>t.resPosition)),step=Math.ceil(maxP/8),y1=p=>T+(p-1)*(H1-T-B1)/(maxP-1),ticks=[];for(let p=1;p<=maxP;p+=step)ticks.push(p);
+ const col=p=>p===1?"#facc15":p<=3?"#34d399":p<=10?"#a78bfa":"#f87171";
+ const A=`<svg width="${W}" height="${H1}" role="img" aria-label="Team position per tournament">${ticks.map(p=>`<line x1="${L}" x2="${W-R}" y1="${y1(p)}" y2="${y1(p)}" stroke="#232846"/><text x="${L-8}" y="${y1(p)+4}" text-anchor="end" fill="#9ca3af" font-size="10">#${p}</text>`).join("")}
+ <polyline fill="none" stroke="#7c3aed" stroke-width="2" points="${rows.map((t,i)=>gx(i)+","+y1(t.resPosition)).join(" ")}"/>
+ ${rows.map((t,i)=>`<circle cx="${gx(i)}" cy="${y1(t.resPosition)}" r="6" fill="${col(t.resPosition)}" stroke="#0b0d17" stroke-width="2"><title>${ttl(t)}: #${t.resPosition} · ${t.resPosPoints??"–"} pts · ${t.resKills??"–"} kills</title></circle><text x="${gx(i)}" y="${y1(t.resPosition)-11}" text-anchor="middle" fill="#fff" font-size="11" font-weight="700">#${t.resPosition}</text>`).join("")}
+ ${xlab(H1,B1,(t,i)=>`<text x="${gx(i)}" y="${H1-B1+44}" text-anchor="middle" fill="#a78bfa" font-size="10">PP ${t.resPosPoints??"–"}</text><text x="${gx(i)}" y="${H1-B1+57}" text-anchor="middle" fill="#fbbf24" font-size="10">K ${t.resKills??"–"}</text>`)}</svg>`;
+ const ids=[...new Set(rows.flatMap(t=>Object.keys(t.ratings||{})))],maxK=Math.max(5,...rows.flatMap(t=>Object.values(t.ratings||{}).map(r=>r.kills||0))),H2=245,B2=44,y2=k=>H2-B2-(k/maxK)*(H2-T-B2);
+ const lines=ids.map((id,pi)=>{const c=PAL[pi%PAL.length];let d="",pen=false;const dots=[];
+  rows.forEach((t,i)=>{const r=(t.ratings||{})[id];if(r&&r.kills!=null){d+=(pen?"L":"M")+gx(i)+" "+y2(r.kills)+" ";pen=true;dots.push(`<circle cx="${gx(i)}" cy="${y2(r.kills)}" r="4.5" fill="${c}" stroke="#0b0d17" stroke-width="1.5"><title>${esc(uname(id))}: ${r.kills} kills</title></circle>`)}else pen=false});
+  return `<path d="${d}" fill="none" stroke="${c}" stroke-width="2"/>${dots.join("")}`}).join("");
+ const B=`<svg width="${W}" height="${H2}" role="img" aria-label="Player kills per tournament">${[0,1,2,3,4].map(i=>Math.round(maxK*i/4)).map(k=>`<line x1="${L}" x2="${W-R}" y1="${y2(k)}" y2="${y2(k)}" stroke="#232846"/><text x="${L-8}" y="${y2(k)+4}" text-anchor="end" fill="#9ca3af" font-size="10">${k}</text>`).join("")}${lines}${xlab(H2,B2)}</svg>`;
+ const legend=ids.map((id,pi)=>`<span class="inline-flex items-center gap-1 mr-3 mb-1 text-xs"><i style="background:${PAL[pi%PAL.length]};width:10px;height:10px;border-radius:50%;display:inline-block"></i>${esc(uname(id))}</span>`).join("");
+ const tbl=`<table class="w-full text-xs whitespace-nowrap"><tr class="text-gray-400 text-left"><th class="pr-3 py-1">Tournament</th><th>Pos</th><th>PP</th><th>Team K</th><th>Total pts</th>${ids.map(id=>`<th class="px-2">${esc(uname(id))}</th>`).join("")}<th>Σ players</th></tr>${[...rows].reverse().map(t=>{const r=t.ratings||{},sum=Object.values(r).reduce((a,x)=>a+(x.kills||0),0);
+  return `<tr class="border-t border-[#232846]"><td class="py-1 pr-3">${ttl(t)}<br><span class="text-gray-500">${xl(t).join(" ")}</span></td><td><b>#${t.resPosition}</b></td><td>${t.resPosPoints??"–"}</td><td>${t.resKills??"–"}</td><td>${t.resTotalPoints??"–"}</td>${ids.map(id=>`<td class="px-2">${r[id]?r[id].kills:"–"}</td>`).join("")}<td>${sum}${t.resKills==null?"":sum===t.resKills?" ✅":" ⚠"}</td></tr>`}).join("")}</table>`;
+ return `<h2 class="font-bold mt-5 mb-1">📈 Team placement</h2><p class="text-xs text-gray-400 mb-2">Higher on the chart = better position. Under each point: PP = position points, K = team kills (from the manager's leaderboard).</p><div class="card overflow-x-auto">${A}</div>
+ <h2 class="font-bold mt-5 mb-1">⚔ Player kills per tournament</h2><div class="card"><div class="mb-2">${legend}</div><div class="overflow-x-auto">${B}</div></div>
+ <h2 class="font-bold mt-5 mb-1">🧾 Tournament breakdown</h2><div class="card overflow-x-auto">${tbl}</div>`}
+function stats(){let list=allT();if(S.fsq!=="all")list=list.filter(t=>t.squadId===S.fsq);if(S.fg!=="all")list=list.filter(t=>t.gameId===S.fg);const c=calc(list),P={};
+ list.filter(t=>t.status==="Completed").sort((a,b)=>startMs(a)-startMs(b)).forEach(t=>[...t.starterUserIds,t.reserveUserId].forEach(i=>{const p=P[i]||(P[i]={m:0,k:0,r:0,tk:0,seq:[]});p.m++;const x=(t.ratings||{})[i];if(x&&x.kills!=null){p.k+=x.kills;p.r++;p.seq.push(x.kills);if(t.resKills!=null)p.tk+=t.resKills}}));
+ const av=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0,rows=Object.entries(P).sort((a,b)=>b[1].k-a[1].k),mean=av(rows.filter(([,p])=>p.r).map(([,p])=>p.k/p.r));
+ const form=p=>{if(p.r<2||!mean)return"–";const a=p.k/p.r,h=av(p.seq.slice(-2)),e=p.seq.slice(0,-2),ea=e.length?av(e):a,tr=h>ea*1.15?" ↑":h<ea*0.85?" ↓":"";return(a>=mean*1.2?"🔥 Strong":a<=mean*0.7?"⚠ Needs work":"✔ Steady")+tr};
+ const lb=rows.length?`<h2 class="font-bold mt-5 mb-1">Player performance</h2><div class="card overflow-x-auto"><table class="w-full text-sm whitespace-nowrap"><tr class="text-gray-400 text-left"><th>Player</th><th>Matches</th><th>Kills</th><th>Avg</th><th>Share</th><th>Form</th></tr>${rows.map(([i,p],n)=>`<tr class="border-t border-[#232846]"><td class="py-2 pr-2">${n===0&&p.k>0?"🏆 ":""}${esc(uname(i))}${rows.length>1&&n===rows.length-1?" ⬇":""}</td><td>${p.m}</td><td><b>${p.k}</b></td><td>${p.r?(p.k/p.r).toFixed(1):"–"}</td><td>${p.tk?Math.round(p.k/p.tk*100)+"%":"–"}</td><td class="pl-2">${form(p)}</td></tr>`).join("")}</table><p class="text-xs text-gray-500 mt-2">Kills are reported by players. Share = player kills ÷ team leaderboard kills. Form compares average kills with the team average (🔥 ≥120%, ⚠ ≤70%); ↑ ↓ = last 2 matches vs earlier. 🏆 most · ⬇ least.</p></div>`:"";
+ const box=(l,v,col="")=>`<div class="card text-center"><p class="text-2xl font-bold ${col}">${v}</p><p class="text-xs text-gray-400">${l}</p></div>`;
+ const fb=list.flatMap(t=>Object.entries(t.ratings||{}).filter(([,r])=>r.note).map(([u,r])=>`<p class="text-sm border-b border-[#232846] py-2"><span class="text-amber-400">${stars(r.stars)}</span> ${esc(r.note)} <span class="text-gray-500">— ${esc(uname(u))}</span></p>`));
+ return `<div class="grid grid-cols-2 gap-2 mb-3"><select id="fsq" class="inp"><option value="all">All my teams</option>${S.sqs.map(s=>`<option value="${s.id}" ${S.fsq===s.id?"selected":""}>${esc(s.name)}</option>`).join("")}</select>
+ <select id="fg" class="inp"><option value="all">All games</option>${allG().filter(g=>S.fsq==="all"||g.squadId===S.fsq).map(g=>`<option value="${g.id}" ${S.fg===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></div>
+ <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">${box("Tournaments played",c.n)}${box("🥇 1st place",c.p1,"text-yellow-400")}${box("🥈 2nd place",c.p2)}${box("🥉 3rd place",c.p3)}${box("Best position",c.best==="–"?"–":"#"+c.best,"text-green-400")}${box("Avg position",c.avgPos)}${box("Team kills (leaderboard)",c.kills)}${box("Avg rating",c.cnt?c.avg.toFixed(1)+" ★":"–","text-amber-400")}</div>
+ ${charts(list)}${lb}<h2 class="font-bold mt-5 mb-1">Feedback</h2>${fb.join("")||'<p class="text-gray-500">No feedback yet.</p>'}`}
+function profile(){return `<form id="pf" class="card space-y-3"><h2 class="font-bold">My profile</h2><label class="text-sm">Display name</label><input name="n" class="inp" value="${esc(S.me.displayName)}" required>
+ <label class="text-sm">Discord User ID</label><input name="d" pattern="\\d{17,20}" class="inp" value="${esc(S.me.discordUserId)}" required>
+ <p class="text-xs text-gray-400">Discord → Profile → ••• → Copy User ID (Developer Mode must be on).</p><p class="text-xs text-gray-500">${esc(S.me.email)} · ${role()}</p><button class="btn w-full">Save</button></form>`}
+async function post(content){try{const w=(await getDoc(doc(db,"config","discord"))).data()?.webhook;if(!w)return" (Discord webhook not configured.)";
+ await fetch(w,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content,allowed_mentions:{parse:["users"]}})});return" Discord message sent."}catch(x){return" (Discord message failed.)"}}
+const tag=i=>{const u=S.users.find(x=>x.uid===i);return u?.discordUserId?`<@${u.discordUserId}>`:uname(i)};
+const sec=ms=>Math.floor(ms/1000),dt=x=>`<t:${x}:d> <t:${x}:t>`,dtr=x=>`${dt(x)} (<t:${x}:R>)`;
+const room=(id,pw)=>id||pw?"\n🔑 Room ID: `"+(id||"—")+"` | Password: `"+(pw||"—")+"`":"";
+const tourLine=n=>n?"\n🏳️TOUR NAME: **"+n+"**":"";
+function timeMsg(t,s){const m=sec(t.scheduledTime.toMillis()),st=t.startTime?sec(t.startTime.toMillis()):0,om=t.origScheduledTime?sec(t.origScheduledTime.toMillis()):m,os=t.origStartTime?sec(t.origStartTime.toMillis()):0,ch=om!==m||os!==st;
+ const idp=om!==m?`~~${dt(om)}~~ ➜ **${dtr(m)}**`:dtr(m),stl=st?(os&&os!==st?`~~${dt(os)}~~ ➜ **${dt(st)}**`:dt(st)):(os?`~~${dt(os)}~~ ➜ **removed**`:"");
+ return `${ch?"⚠️ **TOURNAMENT TIME CHANGED**\n":""}📋 **${t.teamName||s.name} –SCHEDULED: ${gname(t.gameId)}**${tourLine(t.tournamentName)}\n🕒 MATCH IDP: ${idp}${stl?`\n🏁 MATCH ST: ${stl}`:""}\n🎮 Starters: ${t.starterUserIds.map(tag).join(" ")}\n🪑 Reserve: ${tag(t.reserveUserId)}`}
+function alertDiscord(f,s,st,rs){const ms=new Date(f.get("dt")).getTime(),ss=f.get("ts")?new Date(f.get("ts")).getTime():0,tm=(f.get("tm")||"").trim()||s.name,tn=(f.get("tn")||"").trim();
+ return post(`📋 **${tm} –SCHEDULED: ${gname(f.get("g"))}**${tourLine(tn)}\n🕒 MATCH IDP: ${dtr(sec(ms))}${ss?`\n🏁 MATCH ST: ${dt(sec(ss))}`:""}\n🎮 Starters: ${st.map(tag).join(" ")}\n🪑 Reserve: ${tag(rs)}${room((f.get("rid")||"").trim(),(f.get("rpw")||"").trim())}`)}
+function bindMain(){const q=s=>document.querySelectorAll(s),on=(s,ev,fn)=>{const e=$(s);if(e)e[ev]=fn};
+ on("#hp","onchange",e=>{S.hidePast=e.target.checked;try{localStorage.setItem("hidePast",S.hidePast?"1":"0")}catch(err){}S.sel={};S.selMode=false;render()});
+ on("[data-selall]","onclick",()=>{const mn=allT().filter(t=>vis(t)&&canSel(t)),all=mn.length&&mn.every(t=>S.sel[t.id]);S.sel={};if(!all)mn.forEach(t=>S.sel[t.id]=true);render()});
+ on("[data-selcancel]","onclick",()=>{S.selMode=false;S.sel={};render()});
+ on("[data-seldel]","onclick",async()=>{const ids=Object.keys(S.sel).filter(k=>S.sel[k]&&canSelId(k));if(!ids.length)return;if(!confirm("Delete "+ids.length+" tournament(s) permanently?"))return;
+  try{await Promise.all(ids.map(i=>deleteDoc(doc(db,"tournaments",i))));S.msg=ids.length+" tournament(s) deleted."}catch(err){alert("Could not delete: "+err.message)}S.sel={};S.selMode=false;render()});
+ on("#cursq","onchange",e=>{S.cur=e.target.value;render()});
+ on("#nsf","onsubmit",async e=>{e.preventDefault();await newSquad(new FormData(e.target).get("n"),U());S.msg="Team created.";render()});
+ on("#sf","onsubmit",async e=>{e.preventDefault();const t=new FormData(e.target).get("q").trim().toLowerCase(),mine=S.sqs.map(s=>s.id);
+  const r=await getDocs(query(collection(db,"squads"),where("nameLower",">=",t),where("nameLower","<=",t+"\uf8ff")));
+  S.found=r.docs.map(d=>({id:d.id,...d.data()})).filter(s=>s.active&&!mine.includes(s.id));render()});
+ q("[data-join]").forEach(b=>b.onclick=async()=>{const[i,m]=b.dataset.join.split("|");await setDoc(doc(db,"joinRequests",i+"_"+U()),{squadId:i,uid:U(),asManager:m==="1",status:"pending"});S.found=null;S.msg="Request sent. A team manager must approve it.";render()});
+ q("[data-ap]").forEach(b=>b.onclick=async()=>{const r=Object.values(S.rqBy).flat().find(x=>x.id===b.dataset.ap),isMg=r.asManager&&S.users.find(u=>u.uid===r.uid)?.role==="manager";
+  await updateDoc(doc(db,"squads",r.squadId),{[isMg?"managerIds":"memberIds"]:arrayUnion(r.uid)});await deleteDoc(doc(db,"joinRequests",r.id))});
+ q("[data-rj]").forEach(b=>b.onclick=()=>deleteDoc(doc(db,"joinRequests",b.dataset.rj)));
+ q("[data-act]").forEach(b=>b.onclick=async()=>{const[a,i]=b.dataset.act.split("|"),s=S.sqs.find(x=>x.id===i);
+  if(a==="tog")await updateDoc(doc(db,"squads",i),{active:!s.active});
+  else if(confirm("Leave "+s.name+"?"))await updateDoc(doc(db,"squads",i),isM(s)?{managerIds:arrayRemove(U())}:{memberIds:arrayRemove(U())})});
+ on("#cf","onsubmit",async e=>{e.preventDefault();const f=new FormData(e.target),st=f.getAll("st"),rs=f.get("rs"),s=S.sqs.find(x=>x.id===S.cur);
+  if(st.includes(rs))return alert("Reserve must not also be a starter.");
+  await addDoc(collection(db,"tournaments"),{squadId:s.id,gameId:f.get("g"),tournamentName:f.get("tn"),map:f.get("map"),opponent:f.get("opp"),scheduledTime:Timestamp.fromDate(new Date(f.get("dt"))),starterUserIds:st,reserveUserId:rs,status:"Upcoming",gameRating:null,matchResult:null,ratings:{},startTime:f.get("ts")?Timestamp.fromDate(new Date(f.get("ts"))):null,teamName:(f.get("tm")||"").trim()||s.name,roomId:(f.get("rid")||"").trim(),roomPassword:(f.get("rpw")||"").trim(),createdAt:Timestamp.now(),origScheduledTime:Timestamp.fromDate(new Date(f.get("dt"))),origStartTime:f.get("ts")?Timestamp.fromDate(new Date(f.get("ts"))):null,roomRev:0,createdBy:U()});
+  const n=await alertDiscord(f,s,st,rs);S.view="schedule";S.msg="Match created."+n;render()});
+ on("#gf","onsubmit",async e=>{e.preventDefault();const f=new FormData(e.target);
+  await addDoc(collection(db,"games"),{squadId:S.cur,title:f.get("t"),modes:f.get("m").split(",").map(s=>s.trim()).filter(Boolean),logo:f.get("l")});e.target.reset()});
+ on("#pf","onsubmit",async e=>{e.preventDefault();const f=new FormData(e.target);await updateDoc(doc(db,"users",U()),{displayName:f.get("n"),discordUserId:f.get("d")});await updateProfile(S.user,{displayName:f.get("n")});S.msg="Profile saved.";render()});
+ q("[data-room]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f)),t=allT().find(x=>x.id===f.dataset.room),s=S.sqs.find(x=>x.id===t.squadId),ts=Math.floor(t.scheduledTime.toMillis()/1000),rid=v.rid.trim(),pw=(v.rpw||"").trim(),had=!!(t.roomId||t.roomPassword),rev=(t.roomRev||0)+(had&&(t.roomId!==rid||(t.roomPassword||"")!==pw)?1:0);
+  await updateDoc(doc(db,"tournaments",t.id),{roomId:rid,roomPassword:pw,roomRev:rev});delete S.dr["o"+t.id];
+  S.msg="Room saved."+await post(`${rev>0?"🔄 **NEW ROOM IDP**\n":""}🔑 **ROOM DETAILS – ${t.teamName||s.name}: ${gname(t.gameId)}**${tourLine(t.tournamentName)}\n🕒 ${dtr(ts)}\n🎮 ${t.starterUserIds.map(tag).join(" ")}\n🪑 Reserve: ${tag(t.reserveUserId)}${room(rid,pw)}`);render()});
+ const T=id=>allT().find(x=>x.id===id),tsOf=t=>Math.floor(t.toMillis()/1000),sqOf=t=>S.sqs.find(x=>x.id===t.squadId);
+ q("[data-edit]").forEach(b=>b.onclick=()=>{S.edit=b.dataset.edit&&S.edit!==b.dataset.edit?b.dataset.edit:null;render()});
+ q("[data-del]").forEach(b=>b.onclick=async()=>{if(confirm("Delete this tournament permanently?")){await deleteDoc(doc(db,"tournaments",b.dataset.del));S.edit=null;S.msg="Tournament deleted.";render()}});
+ q("[data-end]").forEach(b=>b.onclick=async()=>{if(confirm("End this tournament? Kills, ratings and results open after this.")){try{await updateDoc(doc(db,"tournaments",b.dataset.end),{status:"Completed",endedAt:Timestamp.now()})}catch(err){alert("Could not end the tournament: "+err.message)}}});
+ q("[data-time]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const t=T(f.dataset.time),fd=new FormData(f),st=fd.getAll("st"),rs=fd.get("rs");
+  if(st.includes(rs))return alert("Reserve must not also be a starter.");
+  const nd=Timestamp.fromDate(new Date(fd.get("dt"))),u={startTime:fd.get("ts")?Timestamp.fromDate(new Date(fd.get("ts"))):null,teamName:(fd.get("tm")||"").trim()||sqOf(t).name,tournamentName:fd.get("tn")||"",map:fd.get("map")||"",opponent:fd.get("opp")||"",starterUserIds:st,reserveUserId:rs};
+  if(nd.toMillis()!==t.scheduledTime.toMillis()){u.scheduledTime=nd;u.reminded=false}
+  if(!t.origScheduledTime)u.origScheduledTime=t.scheduledTime;if(!("origStartTime" in t))u.origStartTime=t.startTime||null;
+  delete S.dr["t"+t.id];await updateDoc(doc(db,"tournaments",t.id),u);S.msg="Changes saved. Tap “Send times to Discord” if you changed the time.";render()});
+ q("[data-sendtime]").forEach(b=>b.onclick=async()=>{const t=T(b.dataset.sendtime),s=sqOf(t);
+  S.msg=(await post(timeMsg(t,s))).trim();render()});
+ q("[data-need]").forEach(b=>b.onclick=async()=>{const[i,k]=b.dataset.need.split("|"),t=T(i),s=sqOf(t),ts=tsOf(t.scheduledTime),who=t.starterUserIds.includes(U())?`**${uname(U())}** is unavailable.`:`A player is unavailable (reported by **${uname(U())}**).`,info=`🎮 ${t.teamName||s.name}: ${gname(t.gameId)} · ${dtr(ts)}`;
+  S.msg=(await post(k==="now"?`🚨 ${tag(t.reserveUserId)} **WE NEED YOU RIGHT NOW!** ${who}\n${info}\nPlease join immediately as the replacement.`:`📣 ${tag(t.reserveUserId)} **Be ready – you come in the NEXT game.** ${who}\n${info}`)).trim();render()});
+ q("[data-result]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f));
+  delete S.dr["s"+f.dataset.result];await updateDoc(doc(db,"tournaments",f.dataset.result),{resPosition:+v.p,resPosPoints:v.pp===""?null:+v.pp,resKills:v.k===""?null:+v.k,resTotalPoints:v.tp===""?null:+v.tp,resNotes:(v.n||"").trim()});S.msg="Results saved (not sent to Discord yet).";render()});
+ q("[data-sendres]").forEach(b=>b.onclick=async()=>{const t=T(b.dataset.sendres),s=sqOf(t);if(t.resPosition==null)return alert("Save the results first.");
+  S.msg=(await post(`🏁 **TOURNAMENT RESULT – ${t.teamName||s.name}: ${gname(t.gameId)}**${tourLine(t.tournamentName)}\n🥇 Team position: **#${t.resPosition}**${t.resPosPoints!=null?"\n📊 Position points: **"+t.resPosPoints+"**":""}${t.resKills!=null?"\n⚔ Team kills: **"+t.resKills+"**":""}${t.resTotalPoints!=null?"\n🏆 Total points: **"+t.resTotalPoints+"**":""}${t.resNotes?"\n📝 "+t.resNotes:""}`)).trim();render()});
+ q("[data-rate]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const id=f.dataset.rate,v=Object.fromEntries(new FormData(f)),t=allT().find(x=>x.id===id),r={...(t.ratings||{}),[U()]:{stars:+v.s,kills:Math.max(0,Math.floor(+v.k||0)),note:v.n}},ks=Object.values(r);
+  if((t.ratings||{})[U()])return alert("You already rated this match.");try{await updateDoc(doc(db,"tournaments",id),{ratings:r,gameRating:ks.reduce((a,x)=>a+x.stars,0)/ks.length});delete S.dr["r"+id];S.msg="Thanks! Your kills & rating were saved.";render()}catch(err){alert("Could not save your rating: "+err.message)}});
+ on("#fsq","onchange",e=>{S.fsq=e.target.value;S.fg="all";render()});on("#fg","onchange",e=>{S.fg=e.target.value;render()})}
+setInterval(()=>{if(!/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName||""))render()},30000);
+render();
+</script></body></html>
