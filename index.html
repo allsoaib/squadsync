@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SquadSync – Esports Team Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#0b0d17;color:#e5e7eb}.card{background:#141829;border:1px solid #232846;border-radius:14px;padding:16px}
+.inp{width:100%;background:#0b0d17;border:1px solid #2c3358;border-radius:10px;padding:10px;color:#fff}
+.btn{background:#7c3aed;border-radius:10px;padding:10px 16px;font-weight:600}.btn:hover{background:#6d28d9}
+.btn2{background:#232846;border-radius:10px;padding:8px 12px}.nav.on{color:#a78bfa;border-color:#a78bfa}</style></head>
+<body class="min-h-screen pb-20"><div id="app"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,sendPasswordResetEmail,setPersistence,browserLocalPersistence,browserSessionPersistence,updateProfile} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,setDoc,addDoc,updateDoc,deleteDoc,getDoc,getDocs,collection,onSnapshot,Timestamp,query,where,arrayUnion,arrayRemove} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const cfg={apiKey:"AIzaSyADmCF4P6v-_tBk0mYwKy6lSRvI_T7xfZs",authDomain:"gaming-schedule-web.firebaseapp.com",projectId:"gaming-schedule-web",storageBucket:"gaming-schedule-web.firebasestorage.app",messagingSenderId:"37353379552",appId:"1:37353379552:web:5adeaa86e7f86e258da285",measurementId:"G-NJYM00N8S9"};
+const SUPPORT="https://discord.gg/zWAGe8jUZ";
+const fb=initializeApp(cfg),auth=getAuth(fb),db=getFirestore(fb);
+const S={user:null,me:null,users:[],a:[],b:[],sqs:[],tsBy:{},gBy:{},rqBy:{},cur:null,view:"schedule",mode:"login",fsq:"all",fg:"all",msg:"",found:null};
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const U=()=>S.user.uid,isM=s=>s.managerIds.includes(U()),mg=()=>S.sqs.filter(isM),role=()=>S.me.role;
+const allT=()=>Object.values(S.tsBy).flat().sort((x,y)=>x.scheduledTime.toMillis()-y.scheduledTime.toMillis()),allG=()=>Object.values(S.gBy).flat();
+const uname=id=>S.users.find(u=>u.uid===id)?.displayName||"Unknown",sqn=id=>S.sqs.find(s=>s.id===id)?.name||"Team",gname=id=>allG().find(g=>g.id===id)?.title||"Game";
+const fmt=t=>t.toDate().toLocaleString([],{dateStyle:"medium",timeStyle:"short"}),stars=n=>"★".repeat(Math.round(n))+"☆".repeat(5-Math.round(n));
+const support=`<a href="${SUPPORT}" target="_blank" rel="noopener" class="text-violet-400 underline">Need Help? Join Support</a>`;
+let unsubs=[],sub=[],key="";
+onAuthStateChanged(auth,u=>{[...unsubs,...sub].forEach(f=>f());unsubs=[];sub=[];key="";Object.assign(S,{user:u,me:null,a:[],b:[],sqs:[],tsBy:{},gBy:{},rqBy:{},cur:null});
+ if(!u)return render();
+ const sq=f=>onSnapshot(query(collection(db,"squads"),where(f,"array-contains",u.uid)),s=>{S[f==="memberIds"?"a":"b"]=s.docs.map(d=>({id:d.id,...d.data()}));sync()});
+ unsubs=[onSnapshot(doc(db,"users",u.uid),d=>{S.me=d.data()||null;render()}),onSnapshot(collection(db,"users"),s=>{S.users=s.docs.map(d=>d.data());render()}),sq("memberIds"),sq("managerIds")]});
+function sync(){const m={};[...S.a,...S.b].forEach(s=>m[s.id]=s);S.sqs=Object.values(m);const k=S.sqs.map(s=>s.id+isM(s)).sort().join();
+ if(k!==key){key=k;sub.forEach(f=>f());sub=[];S.tsBy={};S.gBy={};S.rqBy={};
+  S.sqs.forEach(s=>{const c=n=>query(collection(db,n),where("squadId","==",s.id));
+   sub.push(onSnapshot(c("tournaments"),x=>{S.tsBy[s.id]=x.docs.map(d=>({id:d.id,...d.data()}));render()}),onSnapshot(c("games"),x=>{S.gBy[s.id]=x.docs.map(d=>({id:d.id,...d.data()}));render()}));
+   if(isM(s))sub.push(onSnapshot(c("joinRequests"),x=>{S.rqBy[s.id]=x.docs.map(d=>({id:d.id,...d.data()}));render()}))})}
+ const m2=mg();if(!m2.find(s=>s.id===S.cur))S.cur=(m2.find(s=>s.active)||m2[0])?.id||null;render()}
+function render(){const a=$("#app");
+ if(!S.user||!S.me){a.innerHTML=authView();return bindAuth();}
+ const tabs=[["schedule","Schedule"],["squads","Teams"],...(mg().length?[["create","New Match"],["games","Games"]]:[]),["stats","Stats"],["profile","Profile"]];
+ const V={schedule,squads,create,games,stats,profile}[S.view]||schedule;
+ a.innerHTML=`<header class="flex items-center justify-between p-4 border-b border-[#232846]"><b class="text-lg text-violet-400">⚔ SquadSync</b>
+ <div class="text-sm flex gap-3 items-center"><span class="hidden sm:inline">${esc(S.me.displayName)} · ${role()}</span>${support}<button id="out" class="btn2">Logout</button></div></header>
+ <main class="max-w-3xl mx-auto p-4">${S.msg?`<p class="text-amber-400 mb-2">${esc(S.msg)}</p>`:""}${V()}</main>
+ <nav class="fixed bottom-0 inset-x-0 bg-[#0f1220] border-t border-[#232846] flex justify-around text-sm">${tabs.map(([k,l])=>`<button data-v="${k}" class="nav py-4 px-2 border-t-2 border-transparent ${S.view===k?"on":""}">${l}</button>`).join("")}</nav>`;
+ $("#out").onclick=()=>signOut(auth);document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;S.msg="";render()});bindMain();}
+function authView(){const l=S.mode==="login",r=S.mode==="register";
+ return `<div class="max-w-md mx-auto p-6 pt-12"><h1 class="text-3xl font-bold text-violet-400 mb-1">⚔ SquadSync</h1><p class="text-gray-400 mb-6">Team scheduling & performance</p>
+ <form id="af" class="card space-y-3">
+ ${r?`<input name="name" class="inp" placeholder="Display name" required>`:""}
+ <input name="email" type="email" class="inp" placeholder="Email" required>
+ ${S.mode!=="reset"?`<input name="pw" type="password" minlength="6" class="inp" placeholder="Password" required>`:""}
+ ${r?`<select name="role" class="inp"><option value="player">Player</option><option value="manager">Team Manager / Scheduler</option></select>
+ <input name="sq" id="sq" class="inp" style="display:none" placeholder="Team name (optional – you can create it later)">
+ <div><input name="did" pattern="\\d{17,20}" class="inp" placeholder="Discord User ID (numeric)" required>
+ <details class="text-xs text-gray-400 mt-1"><summary class="cursor-pointer">ⓘ How to copy your Discord User ID</summary>Discord → Settings → Advanced → enable Developer Mode. Then open your profile → ••• → Copy User ID.</details></div>`:""}
+ ${l?`<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rem" checked> Remember me</label>`:""}
+ <button class="btn w-full">${l?"Log in":r?"Create account":"Send reset link"}</button><p id="err" class="text-red-400 text-sm">${esc(S.msg)}</p>
+ <div class="text-sm flex justify-between text-violet-300"><a href="#" data-m="${l?"register":"login"}">${l?"Create account":"Back to login"}</a>${l?`<a href="#" data-m="reset">Forgot password?</a>`:""}</div></form>
+ <p class="text-center mt-6 text-sm">${support}</p></div>`;}
+function bindAuth(){document.querySelectorAll("[data-m]").forEach(a=>a.onclick=e=>{e.preventDefault();S.mode=a.dataset.m;S.msg="";render()});
+ const f=$("#af");if(!f)return;const rs=f.elements.role;if(rs)rs.onchange=()=>$("#sq").style.display=rs.value==="manager"?"block":"none";
+ f.onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f));
+ try{if(S.mode==="reset"){await sendPasswordResetEmail(auth,v.email);S.msg="Reset email sent.";return render();}
+ if(S.mode==="login"){await setPersistence(auth,v.rem?browserLocalPersistence:browserSessionPersistence);await signInWithEmailAndPassword(auth,v.email,v.pw);}
+ else{const c=await createUserWithEmailAndPassword(auth,v.email,v.pw);await updateProfile(c.user,{displayName:v.name});
+  await setDoc(doc(db,"users",c.user.uid),{uid:c.user.uid,email:v.email,displayName:v.name,role:v.role,discordUserId:v.did,ratings:{},stats:{}});
+  if(v.role==="manager"&&v.sq?.trim())await newSquad(v.sq,c.user.uid);}
+ S.msg=""}catch(x){$("#err").textContent=x.message}}}
+const newSquad=(n,uid)=>addDoc(collection(db,"squads"),{name:n.trim(),nameLower:n.trim().toLowerCase(),managerIds:[uid],memberIds:[],active:true,createdBy:uid});
+function schedule(){const T=allT(),up=T.filter(t=>t.status==="Upcoming"),done=T.filter(t=>t.status!=="Upcoming").reverse();
+ if(!S.sqs.length)return `<div class="card text-center"><p>You're not in a team yet.</p><button class="btn mt-3" data-v="squads">Find or create a team</button></div>`;
+ const card=t=>{const sq=S.sqs.find(s=>s.id===t.squadId),played=[...t.starterUserIds,t.reserveUserId].includes(U()),rs=t.ratings||{},ks=Object.keys(rs),avg=ks.length?ks.reduce((a,k)=>a+rs[k].stars,0)/ks.length:0;
+ return `<div class="card mb-3 ${played?"border-violet-500":""}"><div class="flex justify-between"><b>${esc(gname(t.gameId))}${t.tournamentName?" · "+esc(t.tournamentName):""}</b>
+ <span class="text-xs px-2 py-1 rounded bg-[#232846]">${t.status}${t.matchResult?" · "+t.matchResult:""}</span></div>
+ <p class="text-xs text-violet-300">${esc(t.teamName||sqn(t.squadId))}</p>
+ <p class="text-sm text-gray-400">${fmt(t.scheduledTime)}${t.map?" · "+esc(t.map):""}${t.opponent?" · vs "+esc(t.opponent):""}</p>
+ <p class="text-sm mt-1">Starters: ${t.starterUserIds.map(i=>esc(uname(i))).join(", ")}<br>Reserve: ${esc(uname(t.reserveUserId))}</p>
+ ${(played||(sq&&isM(sq)))&&(t.roomId||t.roomPassword)?`<p class="text-sm mt-1 text-green-400">🔑 Room ID: <b>${esc(t.roomId||"—")}</b> · Password: <b>${esc(t.roomPassword||"—")}</b></p>`:""}
+ ${sq&&isM(sq)&&t.status==="Upcoming"?`<form data-room="${t.id}" class="grid grid-cols-2 gap-2 mt-2"><input name="rid" class="inp" placeholder="Room ID" value="${esc(t.roomId)}" required><input name="rpw" class="inp" placeholder="Room password" value="${esc(t.roomPassword)}"><button class="btn2 col-span-2">${t.roomId?"Update":"Add"} room & notify players on Discord</button></form>`:""}
+ ${t.status==="Completed"?`<p class="text-amber-400 mt-1">${ks.length?stars(avg)+` (${ks.length})`:"Not rated"}</p>
+ ${ks.length?`<p class="text-sm mt-1">⚔ Kills: ${ks.map(k=>`${esc(uname(k))} <b>${rs[k].kills??0}</b>`).join(" · ")}</p>`:""}
+ ${played?(rs[U()]?'<p class="text-xs text-green-400 mt-2">✔ You have submitted your kills & rating.</p>':`<form data-rate="${t.id}" class="grid grid-cols-2 gap-2 mt-2"><input name="k" type="number" min="0" max="999" class="inp" placeholder="Your total kills" required><select name="s" class="inp">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} ★</option>`).join("")}</select><input name="n" class="inp col-span-2" placeholder="Feedback note"><button class="btn col-span-2">Submit (one time only)</button></form>`):'<p class="text-xs text-gray-500">Only players in this match can submit kills & rating.</p>'}`:""}
+ ${sq&&isM(sq)&&t.status==="Upcoming"?`<div class="flex gap-2 mt-2 flex-wrap"><button class="btn2" data-res="${t.id}|Win">Mark Win</button><button class="btn2" data-res="${t.id}|Loss">Mark Loss</button><button class="btn2" data-cancel="${t.id}">Cancel</button></div>`:""}</div>`};
+ return `<h2 class="font-bold mb-2">Upcoming</h2>${up.map(card).join("")||'<p class="text-gray-500 mb-4">No upcoming matches.</p>'}<h2 class="font-bold my-2">Past</h2>${done.map(card).join("")||'<p class="text-gray-500">Nothing yet.</p>'}`}
+function curSel(){return `<select id="cursq" class="inp mb-3">${mg().map(s=>`<option value="${s.id}" ${s.id===S.cur?"selected":""}>${esc(s.name)}${s.active?"":" (disabled)"}</option>`).join("")}</select>`}
+function squads(){const reqs=mg().flatMap(s=>(S.rqBy[s.id]||[]));
+ const mine=S.sqs.map(s=>`<div class="card mb-2"><div class="flex justify-between"><b>${esc(s.name)}</b><span class="text-xs">${isM(s)?"Manager":"Player"}${s.active?"":" · Disabled"}</span></div>
+ <p class="text-xs text-gray-400">${s.memberIds.length} players · ${s.managerIds.length} managers</p><div class="flex gap-2 mt-2 flex-wrap">
+ ${isM(s)?`<button class="btn2" data-act="tog|${s.id}">${s.active?"Disable":"Enable"}</button>`:""}<button class="btn2" data-act="leave|${s.id}">Leave</button></div></div>`).join("")||'<p class="text-gray-500 mb-2">You are not in any team yet.</p>';
+ const f=(S.found||[]).map(s=>`<div class="card mb-2 flex justify-between items-center gap-2"><b>${esc(s.name)}</b><div class="flex gap-2"><button class="btn2" data-join="${s.id}|0">Join as player</button>${role()==="manager"?`<button class="btn2" data-join="${s.id}|1">Join as manager</button>`:""}</div></div>`).join("");
+ return `${reqs.length?`<h2 class="font-bold mb-2">Join requests</h2>${reqs.map(r=>`<div class="card mb-2"><p class="text-sm"><b>${esc(uname(r.uid))}</b> wants to join <b>${esc(sqn(r.squadId))}</b> as ${r.asManager?"manager":"player"}</p><div class="flex gap-2 mt-2"><button class="btn2" data-ap="${r.id}">Approve</button><button class="btn2" data-rj="${r.id}">Reject</button></div></div>`).join("")}`:""}
+ <h2 class="font-bold my-2">My teams</h2>${mine}
+ <h2 class="font-bold my-2">Find a team</h2><form id="sf" class="flex gap-2 mb-3"><input name="q" class="inp" placeholder="Search by team name" required><button class="btn">Search</button></form>
+ ${S.found?(f||'<p class="text-gray-500">No active teams found.</p>'):""}
+ ${role()==="manager"?`<h2 class="font-bold my-2">Create a team</h2><form id="nsf" class="card flex gap-2"><input name="n" class="inp" placeholder="New team name" required><button class="btn">Create</button></form>`:""}`}
+function create(){const s=S.sqs.find(x=>x.id===S.cur);if(!s)return '<p class="text-gray-500">Manage a team first (Teams tab).</p>';
+ const ids=[...new Set([...s.managerIds,...s.memberIds])],opts=ids.map(i=>`<option value="${i}">${esc(uname(i))}${s.managerIds.includes(i)?" (manager)":""}</option>`).join("");
+ return `${curSel()}<form id="cf" class="card space-y-3"><h2 class="font-bold">Schedule match for ${esc(s.name)}</h2>
+ <select name="g" class="inp" required><option value="">Select game…</option>${(S.gBy[s.id]||[]).map(g=>`<option value="${g.id}">${esc(g.title)}</option>`).join("")}</select>
+ <input type="datetime-local" name="dt" class="inp" required><input name="tn" class="inp" placeholder="Tournament name (optional)">
+ <div class="grid grid-cols-2 gap-2"><input name="map" class="inp" placeholder="Map"><input name="opp" class="inp" placeholder="Opponent"></div>
+ <label class="text-sm">Team name for this match (optional – change per tournament)</label><input name="tm" class="inp" value="${esc(s.name)}">
+ <div class="grid grid-cols-2 gap-2"><input name="rid" class="inp" placeholder="Room ID (optional)"><input name="rpw" class="inp" placeholder="Room password (optional)"></div>
+ <label class="text-sm">Starters (hold Ctrl/Cmd for multiple)</label><select name="st" multiple size="6" class="inp" required>${opts}</select>
+ <label class="text-sm">Reserve (exactly 1)</label><select name="rs" class="inp" required><option value="">Select reserve…</option>${opts}</select>
+ <button class="btn w-full">Create & notify Discord</button></form>`}
+function games(){const s=S.sqs.find(x=>x.id===S.cur);if(!s)return '<p class="text-gray-500">Manage a team first.</p>';
+ return `${curSel()}<form id="gf" class="card space-y-3 mb-4"><h2 class="font-bold">Add game to ${esc(s.name)}</h2><input name="t" class="inp" placeholder="Game title" required>
+ <input name="m" class="inp" placeholder="Default modes (comma separated)"><input name="l" type="url" class="inp" placeholder="Logo URL"><button class="btn w-full">Add to library</button></form>
+ ${(S.gBy[s.id]||[]).map(g=>`<div class="card mb-2 flex items-center gap-3">${g.logo?`<img src="${esc(g.logo)}" class="w-10 h-10 rounded object-cover">`:"🎮"}<div><b>${esc(g.title)}</b><p class="text-xs text-gray-400">${esc((g.modes||[]).join(", "))}</p></div></div>`).join("")}`}
+function calc(list){const d=list.filter(t=>t.status==="Completed"&&t.matchResult).sort((a,b)=>b.scheduledTime.toMillis()-a.scheduledTime.toMillis()),w=d.filter(t=>t.matchResult==="Win").length,n=d.length;
+ let k=0;for(const t of d){if(t.matchResult===d[0].matchResult)k++;else break}
+ const all=list.flatMap(t=>Object.values(t.ratings||{})),avg=all.length?all.reduce((a,r)=>a+r.stars,0)/all.length:0;
+ return {n,w,l:n-w,rate:n?Math.round(w/n*100):0,streak:n?`${k}${d[0].matchResult[0]}`:"–",avg,cnt:all.length}}
+function stats(){let list=allT();if(S.fsq!=="all")list=list.filter(t=>t.squadId===S.fsq);if(S.fg!=="all")list=list.filter(t=>t.gameId===S.fg);const c=calc(list),P={};list.filter(t=>t.status==="Completed").forEach(t=>[...t.starterUserIds,t.reserveUserId].forEach(i=>{const p=P[i]||(P[i]={m:0,k:0,r:0});p.m++;const x=(t.ratings||{})[i];if(x&&x.kills!=null){p.k+=x.kills;p.r++}}));
+ const rows=Object.entries(P).sort((a,b)=>b[1].k-a[1].k),lb=rows.length?`<h2 class="font-bold mt-5 mb-1">Kills leaderboard</h2><div class="card"><table class="w-full text-sm"><tr class="text-gray-400 text-left"><th>Player</th><th>Matches</th><th>Kills</th><th>Avg</th></tr>${rows.map(([i,p],n)=>`<tr class="border-t border-[#232846]"><td class="py-2">${n===0&&p.k>0?"🏆 ":""}${esc(uname(i))}${rows.length>1&&n===rows.length-1?" ⬇":""}</td><td>${p.m}</td><td><b>${p.k}</b></td><td>${p.r?(p.k/p.r).toFixed(1):"–"}</td></tr>`).join("")}</table><p class="text-xs text-gray-500 mt-2">Kills are reported by players when they rate a match. 🏆 most · ⬇ least.</p></div>`:"";
+ const box=(l,v,col="")=>`<div class="card text-center"><p class="text-2xl font-bold ${col}">${v}</p><p class="text-xs text-gray-400">${l}</p></div>`;
+ const fb=list.flatMap(t=>Object.entries(t.ratings||{}).filter(([,r])=>r.note).map(([u,r])=>`<p class="text-sm border-b border-[#232846] py-2"><span class="text-amber-400">${stars(r.stars)}</span> ${esc(r.note)} <span class="text-gray-500">— ${esc(uname(u))}</span></p>`));
+ return `<div class="grid grid-cols-2 gap-2 mb-3"><select id="fsq" class="inp"><option value="all">All my teams</option>${S.sqs.map(s=>`<option value="${s.id}" ${S.fsq===s.id?"selected":""}>${esc(s.name)}</option>`).join("")}</select>
+ <select id="fg" class="inp"><option value="all">All games</option>${allG().filter(g=>S.fsq==="all"||g.squadId===S.fsq).map(g=>`<option value="${g.id}" ${S.fg===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select></div>
+ <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">${box("Current streak",c.streak,c.streak.endsWith("W")?"text-green-400":"text-red-400")}${box("Games played",c.n)}${box("Wins",c.w,"text-green-400")}${box("Losses",c.l,"text-red-400")}${box("Win rate",c.rate+"%")}${box("Avg rating",c.cnt?c.avg.toFixed(1)+" ★":"–","text-amber-400")}</div>
+ ${lb}<h2 class="font-bold mt-5 mb-1">Feedback</h2>${fb.join("")||'<p class="text-gray-500">No feedback yet.</p>'}`}
+function profile(){return `<form id="pf" class="card space-y-3"><h2 class="font-bold">My profile</h2><label class="text-sm">Display name</label><input name="n" class="inp" value="${esc(S.me.displayName)}" required>
+ <label class="text-sm">Discord User ID</label><input name="d" pattern="\\d{17,20}" class="inp" value="${esc(S.me.discordUserId)}" required>
+ <p class="text-xs text-gray-400">Discord → Profile → ••• → Copy User ID (Developer Mode must be on).</p><p class="text-xs text-gray-500">${esc(S.me.email)} · ${role()}</p><button class="btn w-full">Save</button></form>`}
+async function post(content){try{const w=(await getDoc(doc(db,"config","discord"))).data()?.webhook;if(!w)return" (Discord webhook not configured.)";
+ await fetch(w,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content,allowed_mentions:{parse:["users"]}})});return" Discord message sent."}catch(x){return" (Discord message failed.)"}}
+const tag=i=>{const u=S.users.find(x=>x.uid===i);return u?.discordUserId?`<@${u.discordUserId}>`:uname(i)};
+const room=(id,pw)=>id||pw?`\n🔑 Room ID: **${id||"—"}** | Password: **${pw||"—"}**`:"";
+function alertDiscord(f,s,st,rs){const ts=Math.floor(new Date(f.get("dt")).getTime()/1000),tm=(f.get("tm")||"").trim()||s.name;
+ return post(`📋 **${tm} – Match SCHEDULED: ${gname(f.get("g"))}**${f.get("tn")?" – "+f.get("tn"):""}\n🕒 <t:${ts}:F> (<t:${ts}:R>)\n🎮 Starters: ${st.map(tag).join(" ")}\n🪑 Reserve: ${tag(rs)}${room((f.get("rid")||"").trim(),(f.get("rpw")||"").trim())}`)}
+function bindMain(){const q=s=>document.querySelectorAll(s),on=(s,ev,fn)=>{const e=$(s);if(e)e[ev]=fn};
+ on("#cursq","onchange",e=>{S.cur=e.target.value;render()});
+ on("#nsf","onsubmit",async e=>{e.preventDefault();await newSquad(new FormData(e.target).get("n"),U());S.msg="Team created.";render()});
+ on("#sf","onsubmit",async e=>{e.preventDefault();const t=new FormData(e.target).get("q").trim().toLowerCase(),mine=S.sqs.map(s=>s.id);
+  const r=await getDocs(query(collection(db,"squads"),where("nameLower",">=",t),where("nameLower","<=",t+"\uf8ff")));
+  S.found=r.docs.map(d=>({id:d.id,...d.data()})).filter(s=>s.active&&!mine.includes(s.id));render()});
+ q("[data-join]").forEach(b=>b.onclick=async()=>{const[i,m]=b.dataset.join.split("|");await setDoc(doc(db,"joinRequests",i+"_"+U()),{squadId:i,uid:U(),asManager:m==="1",status:"pending"});S.found=null;S.msg="Request sent. A team manager must approve it.";render()});
+ q("[data-ap]").forEach(b=>b.onclick=async()=>{const r=Object.values(S.rqBy).flat().find(x=>x.id===b.dataset.ap),isMg=r.asManager&&S.users.find(u=>u.uid===r.uid)?.role==="manager";
+  await updateDoc(doc(db,"squads",r.squadId),{[isMg?"managerIds":"memberIds"]:arrayUnion(r.uid)});await deleteDoc(doc(db,"joinRequests",r.id))});
+ q("[data-rj]").forEach(b=>b.onclick=()=>deleteDoc(doc(db,"joinRequests",b.dataset.rj)));
+ q("[data-act]").forEach(b=>b.onclick=async()=>{const[a,i]=b.dataset.act.split("|"),s=S.sqs.find(x=>x.id===i);
+  if(a==="tog")await updateDoc(doc(db,"squads",i),{active:!s.active});
+  else if(confirm("Leave "+s.name+"?"))await updateDoc(doc(db,"squads",i),isM(s)?{managerIds:arrayRemove(U())}:{memberIds:arrayRemove(U())})});
+ on("#cf","onsubmit",async e=>{e.preventDefault();const f=new FormData(e.target),st=f.getAll("st"),rs=f.get("rs"),s=S.sqs.find(x=>x.id===S.cur);
+  if(st.includes(rs))return alert("Reserve must not also be a starter.");
+  await addDoc(collection(db,"tournaments"),{squadId:s.id,gameId:f.get("g"),tournamentName:f.get("tn"),map:f.get("map"),opponent:f.get("opp"),scheduledTime:Timestamp.fromDate(new Date(f.get("dt"))),starterUserIds:st,reserveUserId:rs,status:"Upcoming",gameRating:null,matchResult:null,ratings:{},teamName:(f.get("tm")||"").trim()||s.name,roomId:(f.get("rid")||"").trim(),roomPassword:(f.get("rpw")||"").trim(),createdBy:U()});
+  const n=await alertDiscord(f,s,st,rs);S.view="schedule";S.msg="Match created."+n;render()});
+ on("#gf","onsubmit",async e=>{e.preventDefault();const f=new FormData(e.target);
+  await addDoc(collection(db,"games"),{squadId:S.cur,title:f.get("t"),modes:f.get("m").split(",").map(s=>s.trim()).filter(Boolean),logo:f.get("l")});e.target.reset()});
+ on("#pf","onsubmit",async e=>{e.preventDefault();const f=new FormData(e.target);await updateDoc(doc(db,"users",U()),{displayName:f.get("n"),discordUserId:f.get("d")});await updateProfile(S.user,{displayName:f.get("n")});S.msg="Profile saved.";render()});
+ q("[data-room]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f)),t=allT().find(x=>x.id===f.dataset.room),s=S.sqs.find(x=>x.id===t.squadId),ts=Math.floor(t.scheduledTime.toMillis()/1000),rid=v.rid.trim(),pw=(v.rpw||"").trim();
+  await updateDoc(doc(db,"tournaments",t.id),{roomId:rid,roomPassword:pw});
+  S.msg="Room saved."+await post(`🔑 **ROOM DETAILS – ${t.teamName||s.name}: ${gname(t.gameId)}**\n🕒 <t:${ts}:F> (<t:${ts}:R>)\n🎮 ${t.starterUserIds.map(tag).join(" ")}\n🪑 Reserve: ${tag(t.reserveUserId)}${room(rid,pw)}`);render()});
+ q("[data-res]").forEach(b=>b.onclick=()=>{const[i,r]=b.dataset.res.split("|");updateDoc(doc(db,"tournaments",i),{status:"Completed",matchResult:r})});
+ q("[data-cancel]").forEach(b=>b.onclick=()=>updateDoc(doc(db,"tournaments",b.dataset.cancel),{status:"Canceled"}));
+ q("[data-rate]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const id=f.dataset.rate,v=Object.fromEntries(new FormData(f)),t=allT().find(x=>x.id===id),r={...(t.ratings||{}),[U()]:{stars:+v.s,kills:Math.max(0,Math.floor(+v.k||0)),note:v.n}},ks=Object.values(r);
+  if((t.ratings||{})[U()])return alert("You already rated this match.");await updateDoc(doc(db,"tournaments",id),{ratings:r,gameRating:ks.reduce((a,x)=>a+x.stars,0)/ks.length})});
+ on("#fsq","onchange",e=>{S.fsq=e.target.value;S.fg="all";render()});on("#fg","onchange",e=>{S.fg=e.target.value;render()})}
+render();
+</script></body></html>
