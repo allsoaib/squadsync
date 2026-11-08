@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SquadSync – Esports Team Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{background:#0b0d17;color:#e5e7eb}.card{background:#141829;border:1px solid #232846;border-radius:14px;padding:16px}
+.inp{width:100%;background:#0b0d17;border:1px solid #2c3358;border-radius:10px;padding:10px;color:#fff}
+.btn{background:#7c3aed;border-radius:10px;padding:10px 16px;font-weight:600}.btn:hover{background:#6d28d9}
+.btn2{background:#232846;border-radius:10px;padding:8px 12px}.nav.on{color:#a78bfa;border-color:#a78bfa}</style></head>
+<body class="min-h-screen pb-20">
+<div id="app"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,sendPasswordResetEmail,setPersistence,browserLocalPersistence,browserSessionPersistence,updateProfile} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,doc,setDoc,addDoc,updateDoc,collection,onSnapshot,Timestamp,query,orderBy,getDoc} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const cfg={apiKey:"AIzaSyADmCF4P6v-_tBk0mYwKy6lSRvI_T7xfZs",authDomain:"gaming-schedule-web.firebaseapp.com",projectId:"gaming-schedule-web",storageBucket:"gaming-schedule-web.firebasestorage.app",messagingSenderId:"37353379552",appId:"1:37353379552:web:5adeaa86e7f86e258da285",measurementId:"G-NJYM00N8S9"};
+const SUPPORT="https://discord.gg/zWAGe8jUZ";
+const fb=initializeApp(cfg),auth=getAuth(fb),db=getFirestore(fb);
+const S={user:null,me:null,users:[],games:[],ts:[],view:"schedule",mode:"login",filter:"all",msg:""};
+const $=s=>document.querySelector(s), esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const isMgr=()=>S.me?.role==="manager", uname=id=>S.users.find(u=>u.uid===id)?.displayName||"Unknown";
+const gname=id=>S.games.find(g=>g.id===id)?.title||"Game", fmt=t=>t.toDate().toLocaleString([], {dateStyle:"medium",timeStyle:"short"});
+const support=`<a href="${SUPPORT}" target="_blank" rel="noopener" class="text-violet-400 underline">Need Help? Join Support</a>`;
+let unsubs=[];
+onAuthStateChanged(auth,u=>{unsubs.forEach(f=>f());unsubs=[];S.user=u;if(!u){S.me=null;return render();}
+ unsubs=[onSnapshot(doc(db,"users",u.uid),d=>{S.me=d.data()||null;render()}),
+ onSnapshot(collection(db,"users"),s=>{S.users=s.docs.map(d=>d.data());render()}),
+ onSnapshot(collection(db,"games"),s=>{S.games=s.docs.map(d=>({id:d.id,...d.data()}));render()}),
+ onSnapshot(query(collection(db,"tournaments"),orderBy("scheduledTime")),s=>{S.ts=s.docs.map(d=>({id:d.id,...d.data()}));render()})]});
+function render(){const a=$("#app");
+ if(!S.user||!S.me){a.innerHTML=authView();return bindAuth();}
+ const tabs=[["schedule","Schedule"],...(isMgr()?[["create","New Match"],["games","Games"]]:[]),["stats","Stats"]];
+ a.innerHTML=`<header class="flex items-center justify-between p-4 border-b border-[#232846]"><b class="text-lg text-violet-400">⚔ SquadSync</b>
+ <div class="text-sm flex gap-3 items-center"><span class="hidden sm:inline">${esc(S.me.displayName)} · ${S.me.role}</span>${support}<button id="out" class="btn2">Logout</button></div></header>
+ <main class="max-w-3xl mx-auto p-4">${S.msg?`<p class="text-amber-400 mb-2">${esc(S.msg)}</p>`:""}${S.view==="schedule"?schedule():S.view==="create"?create():S.view==="games"?games():stats()}</main>
+ <nav class="fixed bottom-0 inset-x-0 bg-[#0f1220] border-t border-[#232846] flex justify-around">${tabs.map(([k,l])=>`<button data-v="${k}" class="nav py-4 px-3 border-t-2 border-transparent ${S.view===k?"on":""}">${l}</button>`).join("")}</nav>`;
+ $("#out").onclick=()=>signOut(auth);document.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{S.view=b.dataset.v;S.msg="";render()});bindMain();}
+function authView(){const l=S.mode==="login",r=S.mode==="register";
+ return `<div class="max-w-md mx-auto p-6 pt-12"><h1 class="text-3xl font-bold text-violet-400 mb-1">⚔ SquadSync</h1><p class="text-gray-400 mb-6">Team scheduling & performance</p>
+ <form id="af" class="card space-y-3">
+ ${r?`<input name="name" class="inp" placeholder="Display name" required>`:""}
+ <input name="email" type="email" class="inp" placeholder="Email" required>
+ ${S.mode!=="reset"?`<input name="pw" type="password" minlength="6" class="inp" placeholder="Password" required>`:""}
+ ${r?`<select name="role" class="inp"><option value="player">Player</option><option value="manager">Team Manager / Scheduler</option></select>
+ <div><input name="did" pattern="\\d{17,20}" class="inp" placeholder="Discord User ID (numeric)" required>
+ <details class="text-xs text-gray-400 mt-1"><summary class="cursor-pointer">ⓘ How to copy your Discord User ID</summary>Discord → Settings → Advanced → enable Developer Mode. Then right-click your name/avatar → Copy User ID.</details></div>`:""}
+ ${l?`<label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rem" checked> Remember me</label>`:""}
+ <button class="btn w-full">${l?"Log in":r?"Create account":"Send reset link"}</button><p id="err" class="text-red-400 text-sm">${esc(S.msg)}</p>
+ <div class="text-sm flex justify-between text-violet-300"><a href="#" data-m="${l?"register":"login"}">${l?"Create account":"Back to login"}</a>${l?`<a href="#" data-m="reset">Forgot password?</a>`:""}</div></form>
+ <p class="text-center mt-6 text-sm">${support}</p></div>`;}
+function bindAuth(){document.querySelectorAll("[data-m]").forEach(a=>a.onclick=e=>{e.preventDefault();S.mode=a.dataset.m;S.msg="";render()});
+ const f=$("#af");if(!f)return;f.onsubmit=async e=>{e.preventDefault();const v=Object.fromEntries(new FormData(f));
+ try{if(S.mode==="reset"){await sendPasswordResetEmail(auth,v.email);S.msg="Reset email sent.";return render();}
+ if(S.mode==="login"){await setPersistence(auth,v.rem?browserLocalPersistence:browserSessionPersistence);await signInWithEmailAndPassword(auth,v.email,v.pw);}
+ else{const c=await createUserWithEmailAndPassword(auth,v.email,v.pw);await updateProfile(c.user,{displayName:v.name});
+  await setDoc(doc(db,"users",c.user.uid),{uid:c.user.uid,email:v.email,displayName:v.name,role:v.role,discordUserId:v.did,ratings:{},stats:{}});}
+ S.msg=""}catch(x){$("#err").textContent=x.message}}}
+const stars=n=>"★".repeat(Math.round(n))+"☆".repeat(5-Math.round(n));
+function schedule(){const up=S.ts.filter(t=>t.status==="Upcoming"),done=S.ts.filter(t=>t.status!=="Upcoming").reverse();
+ const card=t=>{const mine=[...t.starterUserIds,t.reserveUserId].includes(S.user.uid),rs=t.ratings||{},ks=Object.keys(rs),avg=ks.length?ks.reduce((a,k)=>a+rs[k].stars,0)/ks.length:0;
+ return `<div class="card mb-3 ${mine?"border-violet-500":""}"><div class="flex justify-between"><b>${esc(gname(t.gameId))}${t.tournamentName?" · "+esc(t.tournamentName):""}</b>
+ <span class="text-xs px-2 py-1 rounded bg-[#232846]">${t.status}${t.matchResult?" · "+t.matchResult:""}</span></div>
+ <p class="text-sm text-gray-400">${fmt(t.scheduledTime)}${t.map?" · "+esc(t.map):""}${t.opponent?" · vs "+esc(t.opponent):""}</p>
+ <p class="text-sm mt-1">Starters: ${t.starterUserIds.map(i=>esc(uname(i))).join(", ")}<br>Reserve: ${esc(uname(t.reserveUserId))}</p>
+ ${t.status==="Completed"?`<p class="text-amber-400 mt-1">${ks.length?stars(avg)+` (${ks.length})`:"Not rated"}</p>
+ <form data-rate="${t.id}" class="flex gap-2 mt-2"><select name="s" class="inp w-20">${[5,4,3,2,1].map(n=>`<option>${n}</option>`).join("")}</select><input name="n" class="inp" placeholder="Feedback note"><button class="btn2">Rate</button></form>`:""}
+ ${isMgr()&&t.status==="Upcoming"?`<div class="flex gap-2 mt-2 flex-wrap"><button class="btn2" data-res="${t.id}|Win">Mark Win</button><button class="btn2" data-res="${t.id}|Loss">Mark Loss</button><button class="btn2" data-cancel="${t.id}">Cancel</button></div>`:""}</div>`};
+ return `<h2 class="font-bold mb-2">Upcoming</h2>${up.map(card).join("")||'<p class="text-gray-500 mb-4">No upcoming matches.</p>'}<h2 class="font-bold my-2">Past</h2>${done.map(card).join("")||'<p class="text-gray-500">Nothing yet.</p>'}`}
+function create(){const opts=S.users.map(u=>`<option value="${u.uid}">${esc(u.displayName)} (${u.role})</option>`).join("");
+ return `<form id="cf" class="card space-y-3"><h2 class="font-bold">Schedule match</h2>
+ <select name="g" class="inp" required><option value="">Select game…</option>${S.games.map(g=>`<option value="${g.id}">${esc(g.title)}</option>`).join("")}</select>
+ <input type="datetime-local" name="dt" class="inp" required><input name="tn" class="inp" placeholder="Tournament name (optional)">
+ <div class="grid grid-cols-2 gap-2"><input name="map" class="inp" placeholder="Map"><input name="opp" class="inp" placeholder="Opponent"></div>
+ <label class="text-sm">Starters (hold Ctrl/Cmd for multiple)</label><select name="st" multiple size="6" class="inp" required>${opts}</select>
+ <label class="text-sm">Reserve (exactly 1)</label><select name="rs" class="inp" required><option value="">Select reserve…</option>${opts}</select>
+ <button class="btn w-full">Create & notify Discord</button></form>`}
+function games(){return `<form id="gf" class="card space-y-3 mb-4"><h2 class="font-bold">Add game</h2><input name="t" class="inp" placeholder="Game title" required>
+ <input name="m" class="inp" placeholder="Default modes (comma separated)"><input name="l" type="url" class="inp" placeholder="Logo URL"><button class="btn w-full">Add to library</button></form>
+ ${S.games.map(g=>`<div class="card mb-2 flex items-center gap-3">${g.logo?`<img src="${esc(g.logo)}" class="w-10 h-10 rounded object-cover">`:"🎮"}<div><b>${esc(g.title)}</b><p class="text-xs text-gray-400">${esc((g.modes||[]).join(", "))}</p></div></div>`).join("")}`}
+function calc(list){const d=list.filter(t=>t.status==="Completed"&&t.matchResult).sort((a,b)=>b.scheduledTime-a.scheduledTime),w=d.filter(t=>t.matchResult==="Win").length,n=d.length;
+ let k=0;for(const t of d){if(t.matchResult===d[0].matchResult)k++;else break}
+ const rt=list.filter(t=>t.ratings),all=rt.flatMap(t=>Object.values(t.ratings)),avg=all.length?all.reduce((a,r)=>a+r.stars,0)/all.length:0;
+ return {n,w,l:n-w,rate:n?Math.round(w/n*100):0,streak:n?`${k}${d[0].matchResult[0]}`:"–",avg,cnt:all.length}}
+function stats(){const list=S.filter==="all"?S.ts:S.ts.filter(t=>t.gameId===S.filter),c=calc(list);
+ const box=(l,v,col="")=>`<div class="card text-center"><p class="text-2xl font-bold ${col}">${v}</p><p class="text-xs text-gray-400">${l}</p></div>`;
+ const fb=list.flatMap(t=>Object.entries(t.ratings||{}).filter(([,r])=>r.note).map(([u,r])=>`<p class="text-sm border-b border-[#232846] py-2"><span class="text-amber-400">${stars(r.stars)}</span> ${esc(r.note)} <span class="text-gray-500">— ${esc(uname(u))}</span></p>`));
+ return `<select id="gfilter" class="inp mb-3"><option value="all">All games</option>${S.games.map(g=>`<option value="${g.id}" ${S.filter===g.id?"selected":""}>${esc(g.title)}</option>`).join("")}</select>
+ <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">${box("Current streak",c.streak,c.streak.endsWith("W")?"text-green-400":"text-red-400")}${box("Games played",c.n)}${box("Wins",c.w,"text-green-400")}${box("Losses",c.l,"text-red-400")}${box("Win rate",c.rate+"%")}${box("Avg rating",c.cnt?c.avg.toFixed(1)+" ★":"–","text-amber-400")}</div>
+ <h2 class="font-bold mt-5 mb-1">Feedback</h2>${fb.join("")||'<p class="text-gray-500">No feedback yet.</p>'}`}
+function bindMain(){const q=s=>document.querySelectorAll(s);
+ const cf=$("#cf");if(cf)cf.onsubmit=async e=>{e.preventDefault();const f=new FormData(cf),st=f.getAll("st"),rs=f.get("rs");
+  if(st.includes(rs))return alert("Reserve must not also be a starter.");
+  await addDoc(collection(db,"tournaments"),{gameId:f.get("g"),tournamentName:f.get("tn"),map:f.get("map"),opponent:f.get("opp"),scheduledTime:Timestamp.fromDate(new Date(f.get("dt"))),starterUserIds:st,reserveUserId:rs,status:"Upcoming",gameRating:null,matchResult:null,ratings:{},createdBy:S.user.uid});
+  let note="";try{const w=(await getDoc(doc(db,"config","discord"))).data()?.webhook;if(w){const tag=i=>{const u=S.users.find(x=>x.uid===i);return u?.discordUserId?`<@${u.discordUserId}>`:uname(i)};const ts=Math.floor(new Date(f.get("dt")).getTime()/1000);
+await fetch(w,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:`📋 **Match SCHEDULED: ${gname(f.get("g"))}**${f.get("tn")?" – "+f.get("tn"):""}\n🕒 <t:${ts}:F> (<t:${ts}:R>)\n🎮 Starters: ${st.map(tag).join(" ")}\n🪑 Reserve: ${tag(rs)}`,allowed_mentions:{parse:["users"]}})});note=" Discord alert sent."}else note=" (Discord webhook not configured.)"}catch(x){note=" (Discord alert failed.)"}
+S.view="schedule";S.msg="Match created."+note;render()};
+ const gf=$("#gf");if(gf)gf.onsubmit=async e=>{e.preventDefault();const f=new FormData(gf);
+  await addDoc(collection(db,"games"),{title:f.get("t"),modes:f.get("m").split(",").map(s=>s.trim()).filter(Boolean),logo:f.get("l")});gf.reset()};
+ q("[data-res]").forEach(b=>b.onclick=()=>{const[i,r]=b.dataset.res.split("|");updateDoc(doc(db,"tournaments",i),{status:"Completed",matchResult:r})});
+ q("[data-cancel]").forEach(b=>b.onclick=()=>updateDoc(doc(db,"tournaments",b.dataset.cancel),{status:"Canceled"}));
+ q("[data-rate]").forEach(f=>f.onsubmit=async e=>{e.preventDefault();const id=f.dataset.rate,v=Object.fromEntries(new FormData(f)),t=S.ts.find(x=>x.id===id),r={...(t.ratings||{}),[S.user.uid]:{stars:+v.s,note:v.n}},ks=Object.values(r);
+  await updateDoc(doc(db,"tournaments",id),{ratings:r,gameRating:ks.reduce((a,x)=>a+x.stars,0)/ks.length})});
+ const gs=$("#gfilter");if(gs)gs.onchange=()=>{S.filter=gs.value;render()}}
+render();
+</script></body></html>
